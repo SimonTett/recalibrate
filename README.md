@@ -1,2 +1,2 @@
 # recalibrate
-Software used for recalibration work in EERCH project
+Software and data used for recalibration work in EERCH project
