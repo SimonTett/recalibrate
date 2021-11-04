@@ -62,7 +62,7 @@ reliab = dict()
 bins = 3
 pbin = np.linspace(0, 1.0, bins, endpoint=False)
 delta_p = 1 / (2 * bins)  # offset for centre of bin
-for title, data in zip(['TAS', 'PAP', 'NHD'], [tas, pap, nhd]):
+for title, data in zip(['TAS',  'NHD', 'PAP'], [tas, pap, nhd]):
     obs_quant = recalibrate.quantile(data.obs)
     sim_quant = recalibrate.quantile(data.sim)
     # let's get probability of each simulated/forecast value.
@@ -72,28 +72,34 @@ for title, data in zip(['TAS', 'PAP', 'NHD'], [tas, pap, nhd]):
     reliab[title] = recalibrate.reliability(forecast_pq, obs_quant)
 
 ## now to plot
-fig, axes = plt.subplots(nrows=3, ncols=1, clear=True, figsize=[8, 9], num='reliability')
+fig, axes = plt.subplots(nrows=3, ncols=2, clear=True, sharex=True,sharey=True,
+                         figsize=[8, 9], num='reliability')
 
-for ax, (name, r) in zip(axes, reliab.items()):
-    sns.heatmap(r.to_pandas(), ax=ax, annot=True, robust=True, fmt='4.2f', center=0.5, cbar=False)
-    ax.set_ylabel("Quantile")
-    ax.set_xlabel("Forecast Probability Quantile")
+for ax,ax2, (name, r) in zip(axes[:,0],axes[:,1], reliab.items()):
+    sns.heatmap(r.reliab.to_pandas(), ax=ax, annot=True, robust=True, fmt='4.2f', center=0.5, cbar=False)
+    sns.heatmap(r.fCount.to_pandas().astype(int), ax=ax2, annot=True, robust=True, fmt='2d', center=0.5, cbar=False)
     ax.set_title(f"{name} Reliability")
+    ax2.set_title(f"{name} Fcount")
+    for a in [ax,ax2]:
+        a.set_ylabel("Quantile")
+        a.set_xlabel("P Quantile")
     ax.invert_yaxis()
 fig.tight_layout()
 fig.show()
 
-## next do the recalibration. Will switch of the trend recalibration.
+recalibrate.saveFig(fig)
+
+## next do the recalibration.
 # use the 1960-2013 data to calibrate.
 
 # now need to fit a dist to 2020 and see how risk changes (and to the raw data),
 
 fig, axes = plt.subplots(nrows=3, ncols=1, num='Dists', figsize=[9, 9], clear=True)
 
-for variab, dist_to_use, title, ax in zip([tas, pap, nhd],
-                                          [scipy.stats.norm, scipy.stats.genextreme, scipy.stats.norm],
-                                          ['TAS', 'PAP', 'NHD'], axes):
-    calib, params, trend = calibrate(variab.obs, variab.sim)
+for variab, dist_to_use, title, ax in zip([tas,nhd, pap ],
+                                          [scipy.stats.norm, scipy.stats.norm, scipy.stats.genextreme],
+                                          ['TAS', 'NHD',  'PAP'], axes):
+    calib, params, trend = recalibrate.calibrate(variab.obs, variab.sim)
     # now apply the calibrations to the 2020 data. Will not apply linear trend scaling
     mn = float(variab.sim_2020.mean())
     yr = 2020 + (7 - 1) / 12.
@@ -134,3 +140,5 @@ for variab, dist_to_use, title, ax in zip([tas, pap, nhd],
 axes[0].legend()
 fig.tight_layout()
 fig.show()
+
+recalibrate.saveFig(fig)

@@ -4,6 +4,7 @@ import scipy.stats
 import scipy.signal
 import collections
 import xarray
+import pathlib
 
 
 def quantile(dataArray, binsize=None, dist=None):
@@ -54,13 +55,17 @@ def reliability(forecast_pq, obs_q):
     Compute reliability dataArray (fraction of obs in each forecast bin)
     :param forecast_pq: xarray of forecast quantiles for each quantile
     :param obs_q: which quantised bin obs were in.
-    :return: a reliability  dataArray with each bin being the fraction of obs that are in the same bin as the forecast.
+    :return: a reliability  dataSet with  two variables each quant x prob_quant
+      reliab: each bin is  the fraction of obs that are in the same bin as the forecast.
+      fCount: each bin is the number of forecasts in each bin.
     """
 
     # now want to see how many times each quantile occurs for each forecast value.
     pquant = np.unique(forecast_pq)
     reliab = xarray.DataArray(np.zeros([len(forecast_pq.quant), len(pquant)]),
-                              coords=dict(quant=forecast_pq.quant, prob_quant=pquant))
+                              coords=dict(quant=forecast_pq.quant, prob_quant=pquant),
+                              name='reliab')
+    fCount = reliab.copy().rename('fCount') # where we will put the forecast count
     for quant in reliab.quant:
         f = forecast_pq.sel(quant=quant)
         omsk = obs_q == quant  # obs in tgt quantile
@@ -68,8 +73,9 @@ def reliability(forecast_pq, obs_q):
             pos = dict(quant=quant, prob_quant=qp)
             L = f == qp  # how many cases for this forecast quantile.
             reliab.loc[pos] = (omsk & L).sum() / L.sum()
+            fCount.loc[pos] = L.sum()
 
-    return reliab
+    return xarray.Dataset(data_vars=dict(reliab=reliab,fCount=fCount))
 
 
 def calibrate(observed, simulated, alpha=None, beta=None, gamma=None,
@@ -130,3 +136,41 @@ def calibrate(observed, simulated, alpha=None, beta=None, gamma=None,
     # wrap parameters and trends in named tuples to make it easier for callee to do things
     # with them.
     return mod_calib, params, trends
+
+fig_dir = pathlib.Path("figures")
+
+def saveFig(fig, name=None, savedir=None, figtype=None, dpi=None, verbose=False):
+    """
+
+
+    :param fig -- figure to save
+    :param name (optional) set to None if undefined
+    :param savedir (optional) directory as a pathlib.Path. Path to save figure to. Default is fig_dir
+    :param figtype (optional) type of figure. (If not specified then png will be used)
+    :param dpi: dots per inch to save at. Default is none which uses matplotlib default.
+    :param verbose:  If True (default False) printout name of file being written to
+    """
+
+    defFigType = '.png'
+    if dpi is None:
+        dpi = 300
+    # set up defaults
+    if figtype is None:
+        figtype = defFigType
+    # work out sub_plot_name.
+    if name is None:
+        fig_name = fig.get_label()
+    else:
+        fig_name = name
+
+    if savedir is None:
+        savedir = fig_dir
+
+    # try and create savedir
+    # possibly create the fig_dir.
+    savedir.mkdir(parents=True, exist_ok=True)  # create the directory
+
+    outFileName = savedir / (fig_name + figtype)
+    if verbose:
+        print(f"Saving to {outFileName}")
+    fig.savefig(outFileName, dpi=dpi)
