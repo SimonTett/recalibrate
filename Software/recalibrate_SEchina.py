@@ -196,7 +196,7 @@ recalibrate.saveFig(fig)
 
 # now need to fit a dist to 2020 and see how risk changes (and to the raw data),
 nboot = 1000
-rng = np.random.default_rng()
+rng = np.random.default_rng(seed=123456) # being explicit about the seed so rng is reproducible..
 ## compute prob ratio and dist fits
 prob_ratios = dict()
 fit_dists = dict()
@@ -244,6 +244,10 @@ fig, axes = plt.subplots(nrows=3, ncols=1, num='Dists', figsize=[9, 9], clear=Tr
 for ax, key in zip(axes, fit_dists.keys()):
     pr = prob_ratios[key]
     uncerts, ks  = recalibrate.prob_rat_uncert(prob_ratios_bs[key],method=bs_uncert_method,pr_est=pr)
+    # cases where ks is 0 then use the std bootstrap...
+    if (ks is not None) and np.any(ks < 0.1):
+        dd, ks2 = recalibrate.prob_rat_uncert(prob_ratios_bs[key],method='percentile',pr_est=pr)
+        uncerts[:,ks < 0.1] = dd[:,ks < 0.1]
 
     titles = ['', 'Calib', 'Calib (no detrend)']
     for indx, p_ratio in enumerate(pr):
