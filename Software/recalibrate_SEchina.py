@@ -104,7 +104,7 @@ def comp_dist(obs, sim, hist_yr, nat_yr, dist_to_use=scipy.stats.norm, first_gue
         start_args = first_guess
     # breakpoint()
     for data, start_arg in zip(dlist, start_args):
-        params = dist_to_use.fit(data, loc=np.mean(data), scale=np.std(data))
+        params = dist_to_use.fit(data.squeeze(), loc=np.mean(data), scale=np.std(data))
         dist = dist_to_use(*params)
         dists.append(dist)
     return dists
@@ -132,28 +132,6 @@ def prob_ratio(dists, obs, useCDF=False, all=False):
         return pr, probs
     else:
         return pr
-
-
-def resample(var):
-    """
-    Resample var -- an xarray dataset
-    :param var: variable to be resampled
-    :return:
-    """
-    if var.ndim == 1:
-        lvar = len(var)
-    elif var.ndim == 2:
-        lvar = var.shape[1]
-    else:
-        raise Exception("Only deal with 1 or 2D data")
-
-    ind = np.sort(rng.choice(lvar, size=lvar))  # index.
-    if var.ndim == 1:
-        sample = var[ind]
-    else:
-        sample = var[:, ind]
-
-    return sample
 
 
 nhd = read_data('nhd')
@@ -199,6 +177,7 @@ nboot = 1000
 rng = np.random.default_rng(seed=123456) # being explicit about the seed so rng is reproducible..
 ## compute prob ratio and dist fits
 prob_ratios = dict()
+probs = dict() # probabilities of event...
 fit_dists = dict()
 obs_2020 = dict()
 prob_ratios_bs = dict()
@@ -212,7 +191,7 @@ for variab, dist_to_use, title in zip(
     dists = comp_dist(variab.obs, variab.sim, variab.sim_2020, variab.sim_nat_2020,
                       dist_to_use=dist_to_use)
 
-    prob_ratios[title] = prob_ratio(dists, variab.obs_2020, useCDF=(title == 'PAP'))
+    prob_ratios[title], probs[title] = prob_ratio(dists, variab.obs_2020, useCDF=(title == 'PAP'),all=True)
     fit_dists[title] = dists
     # extract the first guess for initialising the bootstrap..
     start_args = [d.args for d in dists]
@@ -236,13 +215,10 @@ for variab, dist_to_use, title in zip(
     prob_ratios_bs[title] = np.array(bs_pratio)
     fit_dists_bs[title] = bs_dists
     print("")
-## plot the data
+## print out PRs, liklihoods and the plot the data
 bs_uncert_method = 'distribution'
-# options are '
-fig, axes = plt.subplots(nrows=3, ncols=1, num='Dists', figsize=[9, 9], clear=True)
 
-for ax, key in zip(axes, fit_dists.keys()):
-    pr = prob_ratios[key]
+for key,pr in prob_ratios.items():
     uncerts, ks  = recalibrate.prob_rat_uncert(prob_ratios_bs[key],method=bs_uncert_method,pr_est=pr)
     # cases where ks is 0 then use the std bootstrap...
     if (ks is not None) and np.any(ks < 0.1):
@@ -252,11 +228,19 @@ for ax, key in zip(axes, fit_dists.keys()):
     titles = ['', 'Calib', 'Calib (no detrend)']
     for indx, p_ratio in enumerate(pr):
         print(f"{key} PR {titles[indx]}: {p_ratio:7.2g} ({uncerts[0, indx]:7.2g} - {uncerts[1, indx]:7.2g})",end=' ')
-        if ks is not None:
-            print(f"ks:{ks[indx]:3.2f}")
-        else:
-            print("") # flush the output linek
+        print(f"({uncerts[0, indx]/p_ratio:5.2g} - {uncerts[1, indx]/p_ratio:5.2g})", end=' ')
+    if ks is not None:
+        print(f"ks:{ks[indx]:3.2f}")
+    else:
+        print("") # flush the output line
+for key, prob in probs.items():
+    # now print out the likelihood ratios
 
+    print(f"{key} Raw: {prob[0]:7.2g} Likelihood ratio  Calib: {prob[0]/prob[2]:3.1f}  Calib -- no trend:{prob[0]/prob[3]:3.1f} )")
+
+
+fig, axes = plt.subplots(nrows=3, ncols=1, num='Dists', figsize=[9, 9], clear=True)
+for ax, key in zip(axes, fit_dists.keys()):
     if key == 'PAP':  # interested in drought...
         ylabel = 'p < threshold'
     else:
