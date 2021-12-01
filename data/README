@@ -12,5 +12,5 @@ File naming convention is:
 {var}_obs_jja_1961_2020_ts.nc -- Observed data from 1961-2020. Netcdf file.
 
 {var} is one of nhd (anomalous number of hot days),
-tas ( anomalous air temperature) and pap (Percentage anomalous precipiation). All anomalies are relative to 1980-2010
+tas ( anomalous air temperature) and pap (Percentage anomalous precipitation). All anomalies are relative to 1980-2010
 and for SE China.

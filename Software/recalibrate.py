@@ -6,6 +6,8 @@ import scipy.signal
 import collections
 import xarray
 import pathlib
+import pandas as pd
+import cftime
 
 ## functions for calibration.
 def calibrate(observed, simulated, alpha=None, beta=None, gamma=None,
@@ -132,6 +134,10 @@ def prob_rat_uncert(data, quantile=None, method='percentile', pr_est=None, distr
     return uncerts, ks
 
 ## functions for reliability computation
+
+
+
+
 def quantile(dataArray, binsize=None):
     """
     return dataArray of quantile that each data value is in. ("Quantize" the data)
@@ -199,7 +205,50 @@ def reliability(forecast_pq, obs_q):
 
 ## end of functions for reliability computation
 
-# function to save a figur.
+## useful functions
+
+def read_data(var):
+    """
+    Read sim & obs data then make any fixes needed
+    :param var: what variable wanted
+    :return: obs & sim data as a named tuple.
+    """
+    data_dir = pathlib.Path('../data')
+    obs = xarray.load_dataset(data_dir / f'{var}_obs_jja_1961-2020_ts.nc')[var]
+    sim = xarray.load_dataset(data_dir / f'{var}_model_15runs_jja_1961-2020_ts.nc')[var]
+    sim_2020 = pd.read_csv(data_dir / f'{var}_model_all_anom_2020.txt', header=None, squeeze=True)
+    sim_nat_2020 = pd.read_csv(data_dir / f'{var}_model_nat_anom_2020.txt', header=None, squeeze=True)
+    # convert 2020 data to xarray with the right time
+    time_fn = cftime.Datetime360Day  # shoudl eventually be cftime.datatime
+    t = time_fn(2020, 7, 16, calendar='360_day')  # this should eventually go to cftime.datatime(...,calendar='360_day')
+    sim_2020 = xarray.DataArray(sim_2020).rename(dim_0='model').expand_dims(time=1).assign_coords(time=[t])
+    sim_nat_2020 = xarray.DataArray(sim_nat_2020).rename(dim_0='model').expand_dims(time=1).assign_coords(time=[t])
+    # fix obs
+    obs_2020 = float(obs[-1])
+    for c in ['ncl0', 'ncl3']:
+        try:
+            obs = obs.sel({c: slice(0, 53)}).rename({c: 'time'})
+            break  # worked so stop trying to rename
+        except KeyError:  # don't have c so go on!
+            pass
+
+    # fix sim,
+    for c in ['ncl0', 'ncl1']:
+        try:
+            sim = sim.rename({c: 'time'})
+            # managed to rename so need to sort times...
+            time = [time_fn(yr, 7, 16) for yr in range(1961, 2014)]
+            sim = sim.assign_coords(time=time)
+            break  # worked so stop trying to rename
+        except ValueError:  # don't have c so go on!
+            pass
+
+    obs = obs.assign_coords(time=sim.time)
+
+    named_result = collections.namedtuple('data', ['obs', 'sim', 'obs_2020', 'sim_2020', 'sim_nat_2020'])
+    return named_result(obs, sim, obs_2020, sim_2020, sim_nat_2020)
+
+# function to save a figure.
 fig_dir = pathlib.Path("figures")
 def saveFig(fig, name=None, savedir=None, figtype=None, dpi=None, verbose=False):
     """

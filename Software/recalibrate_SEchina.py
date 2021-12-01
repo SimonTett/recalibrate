@@ -4,58 +4,12 @@ Recalibrate SE China data
 
 from importlib import reload
 import matplotlib.pyplot as plt
-import pathlib
-import pandas as pd
 import xarray
 import numpy as np
 import seaborn as sns
-import collections
 import scipy.stats
-import cftime
 import recalibrate
 
-
-
-def read_data(var):
-    """
-    Read sim & obs data then make any fixes needed
-    :param var:
-    :return: obs & sim data as a named tuple.
-    """
-    data_dir = pathlib.Path('../data')
-    obs = xarray.load_dataset(data_dir / f'{var}_obs_jja_1961-2020_ts.nc')[var]
-    sim = xarray.load_dataset(data_dir / f'{var}_model_15runs_jja_1961-2020_ts.nc')[var]
-    sim_2020 = pd.read_csv(data_dir / f'{var}_model_all_anom_2020.txt', header=None, squeeze=True)
-    sim_nat_2020 = pd.read_csv(data_dir / f'{var}_model_nat_anom_2020.txt', header=None, squeeze=True)
-    # convert 2020 data to xarray with the right time
-    time_fn = cftime.Datetime360Day  # shoudl eventually be cftime.datatime
-    t = time_fn(2020, 7, 16, calendar='360_day')  # this should eventually go to cftime.datatime(...,calendar='360_day')
-    sim_2020 = xarray.DataArray(sim_2020).rename(dim_0='model').expand_dims(time=1).assign_coords(time=[t])
-    sim_nat_2020 = xarray.DataArray(sim_nat_2020).rename(dim_0='model').expand_dims(time=1).assign_coords(time=[t])
-    # fix obs
-    obs_2020 = float(obs[-1])
-    for c in ['ncl0', 'ncl3']:
-        try:
-            obs = obs.sel({c: slice(0, 53)}).rename({c: 'time'})
-            break  # worked so stop trying to rename
-        except KeyError:  # don't have c so go on!
-            pass
-
-    # fix sim,
-    for c in ['ncl0', 'ncl1']:
-        try:
-            sim = sim.rename({c: 'time'})
-            # managed to rename so need to sort times...
-            time = [time_fn(yr, 7, 16) for yr in range(1961, 2014)]
-            sim = sim.assign_coords(time=time)
-            break  # worked so stop trying to rename
-        except ValueError:  # don't have c so go on!
-            pass
-
-    obs = obs.assign_coords(time=sim.time)
-
-    named_result = collections.namedtuple('data', ['obs', 'sim', 'obs_2020', 'sim_2020', 'sim_nat_2020'])
-    return named_result(obs, sim, obs_2020, sim_2020, sim_nat_2020)
 
 
 def indep_calib(sim, sim_nat, trend, params):
@@ -134,42 +88,13 @@ def prob_ratio(dists, obs, useCDF=False, all=False):
         return pr
 
 
-nhd = read_data('nhd')
-tas = read_data('tas')
-pap = read_data('pap')
+nhd = recalibrate.read_data('nhd')
+tas = recalibrate.read_data('tas')
+pap = recalibrate.read_data('pap')
 
-reliab = dict()
-bins = 3
-pbin = np.linspace(0, 1.0, bins, endpoint=False)
-delta_p = 1 / (2 * bins)  # offset for centre of bin
-for title, data in zip(['TAS', 'NHD', 'PAP'], [tas, pap, nhd]):
-    obs_quant = recalibrate.quantile(data.obs)
-    sim_quant = recalibrate.quantile(data.sim)
-    # let's get probability of each simulated/forecast value.
-    forecast_p = recalibrate.forecast_prob(sim_quant)
-    forecast_pq = (xarray.apply_ufunc(np.digitize, forecast_p, kwargs=dict(bins=pbin)))
-    # and then the forecast reliability
-    reliab[title] = recalibrate.reliability(forecast_pq, obs_quant)
 
-## now to plot
-fig, axes = plt.subplots(nrows=3, ncols=2, clear=True, sharex=True, sharey=True,
-                         figsize=[8, 9], num='reliability')
 
-for ax, ax2, (name, r) in zip(axes[:, 0], axes[:, 1], reliab.items()):
-    sns.heatmap(r.reliab.to_pandas(), ax=ax, annot=True, robust=True, fmt='4.2f', center=0.5, cbar=False)
-    sns.heatmap(r.fCount.to_pandas().astype(int), ax=ax2, annot=True, robust=True, fmt='2d', center=0.5, cbar=False)
-    ax.set_title(f"{name} Reliability")
-    ax2.set_title(f"{name} Fcount")
-    for a in [ax, ax2]:
-        a.set_ylabel("Quantile")
-        a.set_xlabel("P Quantile")
-    ax.invert_yaxis()
-fig.tight_layout()
-fig.show()
-
-recalibrate.saveFig(fig)
-
-## next do the recalibration.
+## do the recalibration.
 # use the 1960-2013 data to calibrate.
 
 # now need to fit a dist to 2020 and see how risk changes (and to the raw data),
