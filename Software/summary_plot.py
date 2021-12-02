@@ -15,7 +15,7 @@ data_cat=['raw','calibrated','calibrated no trend']
 variables=['TAS','NHD','PAP']
 cols=['RoyalBlue','SpringGreen','Gold']
 
-data = pd.read_csv('Simon_data.csv',index_col=0)
+data = pd.read_csv('../data/PR_data.csv',index_col=0)
 
 data_cat=['raw','calibrated','calibrated no trend']
 variables=['TAS','NHD','PAP']
