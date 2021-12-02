@@ -1,0 +1,10 @@
+﻿Variable ,Best estimate,5%,95%
+TAS raw,2.20E+07,3.50E+06,1.70E+08
+TAS calibrated,1.90E+07,3.80E+03,3.10E+08
+TAS calibrated no trend,5.50E+07,7.90E+03,7.90E+07
+NHD raw,4.60E+06,2.40E+05,1.60E+08
+NHD calibrated,1.40E+04,7.60E+02,1.10E+07
+NHD calibrated no trend,1.00E+04,6.00E+02,6.60E+06
+PAP raw,2.00E+00,1.60E+00,2.60E+00
+PAP calibrated,1.10E+00,3.90E-01,2.40E+00
+PAP calibrated no trend,2.30E+00,1.50E+00,4.70E+00
