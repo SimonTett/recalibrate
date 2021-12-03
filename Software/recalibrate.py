@@ -8,6 +8,11 @@ import xarray
 import pathlib
 import pandas as pd
 import cftime
+import pathlib
+# useful paths
+data = pathlib.Path('../data')
+gen_data = pathlib.Path('../gen_data')
+gen_data.mkdir(parents=True,exist_ok=True)
 
 ## functions for calibration.
 def calibrate(observed, simulated, alpha=None, beta=None, gamma=None,

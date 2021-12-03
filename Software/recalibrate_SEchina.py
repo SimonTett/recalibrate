@@ -9,9 +9,10 @@ import numpy as np
 import seaborn as sns
 import scipy.stats
 import recalibrate
+import pandas as pd
+import pickle
 
-
-
+nboot = 1000 # how many boot strap samples we want
 def indep_calib(sim, sim_nat, trend, params):
     """
     Apply the calibration to the 2020 data and return it
@@ -45,22 +46,23 @@ def comp_dist(obs, sim, hist_yr, nat_yr, dist_to_use=scipy.stats.norm, first_gue
     :param sim: Simulations for calibration period
     :param hist_yr: Hist Simulation in tgt year
     :param nat_yr: Nat Simulations in tgt year
-    :param yr: Defaualt 202.5) -- tgt year
+    :param yr: Defaualt 2020.5) -- tgt year
     :return:  dists (0 = hist_yr, 1=nat_yr, 2=calib_hist, 3= calib_hist with no trend removal, 4= calib_nat)
     """
     calib, params, trends = recalibrate.calibrate(obs, sim)
     calib_hist, calib_notrend_hist, calib_nat = indep_calib(hist_yr, nat_yr, trends, params)
     dlist = [hist_yr, nat_yr, calib_hist, calib_notrend_hist, calib_nat]
-    dists = []
+    dists = dict()
     if first_guess is None:
         start_args = [[None] * 2] * len(dlist)
     else:
         start_args = first_guess
     # breakpoint()
-    for data, start_arg in zip(dlist, start_args):
+    for data, start_arg,key in zip(dlist, start_args,['Hist', 'Natural', 'Hist_calib', 'Hist_calib_notrend', 'Nat_calib']):
         params = dist_to_use.fit(data.squeeze(), loc=np.mean(data), scale=np.std(data))
         dist = dist_to_use(*params)
-        dists.append(dist)
+        dists[key]=dist
+    dists = pd.Series(dists)
     return dists
 
 
@@ -70,18 +72,21 @@ def prob_ratio(dists, obs, useCDF=False, all=False):
     :param dists: input distributions (0 = hist_yr, 1=nat_yr, 2=calib_hist, 3= calib_hist with no trend removal, 4= calib_nat)
     :param obs: Obs value
     :param useCDF: use CDF rather than SF
-    :param all: return probabilities and ratios
-    :return: returns probability ratios 0/1 2/4 3/4
+    :param all: return probabilities and ratios as pandas series
+    :return: returns probability ratios as pandas series
     """
-    probs = []
-    for d in dists:
+    probs = {}
+    for key,d in dists.items():
         if useCDF:
             pv = d.cdf(obs)
         else:
             pv = d.sf(obs)
-        probs.append(pv)
-    probs = np.array(probs)  # convert to numpy array
-    pr = np.array([probs[0] / probs[1], probs[2] / probs[4], probs[3] / probs[4]])
+        probs[key]=pv
+
+    probs = pd.Series(probs)  # convert to numpy array
+    pr = pd.Series(dict(raw=probs.loc['Hist'] / probs.loc['Natural'],
+                        calib=probs.loc['Hist_calib'] / probs.loc['Nat_calib'],
+                        calib_notrend=probs.loc['Hist_calib_notrend'] / probs.loc['Nat_calib']))
     if all:
         return pr, probs
     else:
@@ -92,17 +97,15 @@ nhd = recalibrate.read_data('nhd')
 tas = recalibrate.read_data('tas')
 pap = recalibrate.read_data('pap')
 
-
-
 ## do the recalibration.
 # use the 1960-2013 data to calibrate.
 
 # now need to fit a dist to 2020 and see how risk changes (and to the raw data),
-nboot = 1000
-rng = np.random.default_rng(seed=123456) # being explicit about the seed so rng is reproducible..
+
+rng = np.random.default_rng(seed=123456)  # being explicit about the seed so rng is reproducible..
 ## compute prob ratio and dist fits
 prob_ratios = dict()
-probs = dict() # probabilities of event...
+probs = dict()  # probabilities of event...
 fit_dists = dict()
 obs_2020 = dict()
 prob_ratios_bs = dict()
@@ -114,9 +117,9 @@ for variab, dist_to_use, title in zip(
 ):
     obs_2020[title] = variab.obs_2020
     dists = comp_dist(variab.obs, variab.sim, variab.sim_2020, variab.sim_nat_2020,
-                      dist_to_use=dist_to_use)
+                      dist_to_use=dist_to_use).rename(title)
 
-    prob_ratios[title], probs[title] = prob_ratio(dists, variab.obs_2020, useCDF=(title == 'PAP'),all=True)
+    prob_ratios[title], probs[title] = prob_ratio(dists, variab.obs_2020, useCDF=(title == 'PAP'), all=True)
     fit_dists[title] = dists
     # extract the first guess for initialising the bootstrap..
     start_args = [d.args for d in dists]
@@ -127,7 +130,7 @@ for variab, dist_to_use, title in zip(
     obs_trend = recalibrate.xarray_detrend(variab.obs, 'time', 1)
     sim_trend = recalibrate.xarray_detrend(variab.sim, 'time', 1)
     for n in range(nboot):
-        if (n % (nboot//10)) == 0:
+        if (n % (nboot // 10)) == 0:
             print(f"{n}..", end='')
 
         obs = rng.choice(obs_trend.detrend, obs_trend.detrend.shape[0]) + obs_trend.trend
@@ -137,61 +140,25 @@ for variab, dist_to_use, title in zip(
         dists = comp_dist(obs, sim, hist_2020, nat_2020, dist_to_use=dist_to_use, first_guess=start_args)
         bs_pratio.append(prob_ratio(dists, variab.obs_2020, useCDF=(title == 'PAP')))
         bs_dists.append(dists)
-    prob_ratios_bs[title] = np.array(bs_pratio)
-    fit_dists_bs[title] = bs_dists
+    prob_ratios_bs[title] = pd.DataFrame(bs_pratio)
+    fit_dists_bs[title] = pd.DataFrame(bs_dists)
     print("")
-## print out PRs, liklihoods and the plot the data
-bs_uncert_method = 'distribution'
 
-for key,pr in prob_ratios.items():
-    uncerts, ks  = recalibrate.prob_rat_uncert(prob_ratios_bs[key],method=bs_uncert_method,pr_est=pr)
-    # cases where ks is 0 then use the std bootstrap...
-    if (ks is not None) and np.any(ks < 0.1):
-        dd, ks2 = recalibrate.prob_rat_uncert(prob_ratios_bs[key],method='percentile',pr_est=pr)
-        uncerts[:,ks < 0.1] = dd[:,ks < 0.1]
+# save the data so plotting happens separately.
+prob_ratios = pd.DataFrame(prob_ratios)
+probs = pd.DataFrame(probs)
+obs_2020 = pd.Series(obs_2020)
+prob_ratios_bs = pd.concat(prob_ratios_bs)
+fit_dists= pd.DataFrame(fit_dists)
+fit_dists_bs = pd.concat(fit_dists_bs)
 
-    titles = ['', 'Calib', 'Calib (no detrend)']
-    for indx, p_ratio in enumerate(pr):
-        print(f"{key} PR {titles[indx]}: {p_ratio:7.2g} ({uncerts[0, indx]:7.2g} - {uncerts[1, indx]:7.2g})",end=' ')
-        print(f"({uncerts[0, indx]/p_ratio:5.2g} - {uncerts[1, indx]/p_ratio:5.2g})", end=' ')
-    if ks is not None:
-        print(f"ks:{ks[indx]:3.2f}")
-    else:
-        print("") # flush the output line
-for key, prob in probs.items():
-    # now print out the likelihood ratios
-
-    print(f"{key} Raw: {prob[0]:7.2g} Likelihood ratio  Calib: {prob[0]/prob[2]:3.1f}  Calib -- no trend:{prob[0]/prob[3]:3.1f} )")
+for var,filename in zip([prob_ratios,probs,obs_2020,prob_ratios_bs],['prob_ratios','probs','obs_2020','prob_ratios_bs']):
+    var.to_csv(recalibrate.gen_data/(filename+'.csv'))
 
 
-fig, axes = plt.subplots(nrows=3, ncols=1, num='Dists', figsize=[9, 9], clear=True)
-for ax, key in zip(axes, fit_dists.keys()):
-    if key == 'PAP':  # interested in drought...
-        ylabel = 'p < threshold'
-    else:
-        ylabel = 'p > threshold'
+# Need to use pickle for scipy.stats distributions...
+for var, filename in zip([fit_dists,fit_dists_bs],['fit_dists','fit_dists_bs']):
+    with open(recalibrate.gen_data/(filename+'.pickle'),mode='wb') as fp:
+        pickle.dump(var,fp)
 
-    for dist, label, color, linestyle in zip(fit_dists[key],
-                                             ['Hist 2020', 'Nat 2020', 'Calib Hist 2020',
-                                              'Calib (no trend) Hist 2020', 'Calib Nat 2020'],
-                                             ['red', 'blue', 'red', 'purple', 'blue'],
-                                             ['solid', 'solid', 'dashed', 'dashed', 'dashed']):
-        v_range = dist.ppf([1e-5, 1 - 1e-5])
-        p = np.linspace(v_range[0], v_range[1], 500)
-        if key == 'PAP':  # interested in drought...
-            fn = dist.cdf
-        else:
-            fn = dist.sf
-        ax.plot(p, fn(p), color=color, linewidth=2, linestyle=linestyle, label=label)
-    ax.axvline(obs_2020[key], linewidth=3, color='gray', label='2020 Obs')
-    ax.axhline(1e-2,linewidth=2,color='grey',linestyle='dashed')
-    ax.set_yscale('log')
-    ax.set_title(key)
-    ax.set_ylabel(ylabel)
-    ax.set_xlabel("Threshold")
 
-axes[0].legend()
-fig.tight_layout()
-fig.show()
-
-recalibrate.saveFig(fig)
